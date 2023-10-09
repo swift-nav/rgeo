@@ -1,4 +1,4 @@
-module github.com/sams96/rgeo
+module github.com/swift-nav/rgeo
 
 go 1.19
 
