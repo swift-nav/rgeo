@@ -263,6 +263,7 @@ func TestReverseGeocode_Countries(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test (countries) for short mode")
 	}
+	t.Parallel()
 
 	for _, dataset := range []func() []byte{Countries110, Countries10} {
 		r, err := New(dataset)
@@ -278,6 +279,8 @@ func TestReverseGeocode_Countries(t *testing.T) {
 			test.expected.City = ""
 
 			t.Run(test.name, func(t *testing.T) {
+				t.Parallel()
+
 				result, err := r.ReverseGeocode(test.in)
 				if err != test.err {
 					t.Errorf("expected error: %s\n got: %s\n", test.err, err)
@@ -294,6 +297,7 @@ func TestReverseGeocode_Provinces(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integraion test (provinces) in short mode")
 	}
+	t.Parallel()
 
 	r, err := New(Provinces10)
 	if err != nil {
@@ -306,6 +310,8 @@ func TestReverseGeocode_Provinces(t *testing.T) {
 		test.expected.City = ""
 
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := r.ReverseGeocode(test.in)
 			if err != test.err {
 				t.Errorf("expected error: %s\n got: %s\n", test.err, err)
@@ -321,6 +327,7 @@ func TestReverseGeocode_Cities(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test (cities) in short mode.")
 	}
+	t.Parallel()
 
 	r, err := New(Provinces10, Cities10)
 	if err != nil {
@@ -330,6 +337,8 @@ func TestReverseGeocode_Cities(t *testing.T) {
 	for _, test := range testdata {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := r.ReverseGeocode(test.in)
 			if err != test.err {
 				t.Errorf("expected error: %s\n got: %s\n", test.err, err)
@@ -350,7 +359,7 @@ func TestNew_BadData(t *testing.T) {
 		{
 			name: "Empty data",
 			in:   func() []byte { return []byte(``) },
-			err:  "invalid data: no data found",
+			err:  "no data in dataset 0",
 		},
 		{
 			name: "Wrong type",
@@ -361,7 +370,7 @@ func TestNew_BadData(t *testing.T) {
 								{"type":"Point","coordinates":[0,0]}}]}`,
 				)
 			},
-			err: "invalid dataset: needs Polygon or MultiPolygon",
+			err: "bad polygon in geometry: needs Polygon or MultiPolygon",
 		},
 		{
 			name: "Small polygon",
@@ -373,7 +382,7 @@ func TestNew_BadData(t *testing.T) {
 								"coordinates":[[[1,2],[3,4],[1,2]]]}}]}`,
 				)
 			},
-			err: "invalid dataset: can't convert ring with less than 4 points",
+			err: "bad polygon in geometry: can't convert ring with less than 4 points",
 		},
 		{
 			name: "No repeated end",
@@ -385,8 +394,8 @@ func TestNew_BadData(t *testing.T) {
 								"coordinates":[[[1,2],[3,4],[5,6],[7,8]]]}}]}`,
 				)
 			},
-			err: "invalid dataset: last coordinate not same as first for " +
-				"polygon: [1 2 3 4 5 6 7 8]",
+			err: "bad polygon in geometry: " +
+				"last coordinate not same as first for polygon: [1 2 3 4 5 6 7 8]",
 		},
 		{
 			name: "Bad Multipolygon",
@@ -398,18 +407,18 @@ func TestNew_BadData(t *testing.T) {
 								"coordinates":[[[[1,2],[3,4],[5,6],[7,8]]]]}}]}`,
 				)
 			},
-			err: "invalid dataset: last coordinate not same as first for " +
-				"polygon: [1 2 3 4 5 6 7 8]",
+			err: "bad polygon in geometry: " +
+				"last coordinate not same as first for polygon: [1 2 3 4 5 6 7 8]",
 		},
 		{
 			name: "Bad compression",
 			in:   func() []byte { return []byte(`dGhpcyBpcyBub3QgU29tcHJIc3NIZA==`) },
-			err:  "invalid dataset: gzip: invalid header",
+			err:  "decompression failed for dataset 0: gzip: invalid header",
 		},
 		{
 			name: "Bad JSON",
 			in:   func() []byte { return []byte(compressData(t, `this is not JSON`)) },
-			err:  "invalid dataset: JSON: invalid character 'h' in literal true (expecting 'r')",
+			err:  "invalid JSON in dataset 0: invalid character 'h' in literal true (expecting 'r')",
 		},
 	}
 	for _, test := range testdata {
