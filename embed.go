@@ -10,7 +10,7 @@ func Cities10() []byte {
 	return cities10
 }
 
-//go:embed data/Countries10.gz
+//go:embed data/EEZ_land_union_v4_202410.gz
 var countries10 []byte
 
 func Countries10() []byte {
