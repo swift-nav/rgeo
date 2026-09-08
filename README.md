@@ -81,6 +81,11 @@ are:
  - `Countries110` - Just country information, smallest and lowest detail of the
    included datasets.
  - `Countries10` - The same as above but with more detail.
+ - `CountriesEEZ10` - An alternative to `Countries10` built from the
+   MarineRegions EEZ land union. Its polygons extend to the edge of each
+   country's exclusive economic zone (roughly 200 nautical miles offshore)
+   rather than stopping at the coastline, so points at sea resolve to a country
+   instead of returning `ErrLocationNotFound`.
  - `Provinces10` - Includes province information as well as country, so can
    still be used alone.
  - `Cities10` - Just city information, if you want provinces and/or countries as
@@ -154,6 +159,25 @@ fmt.Printf("%s\n", loc.SubRegion)
 // Europe
 // Northern Europe
 ```
+
+## Data sources
+
+`Countries110`, `Countries10`, `Provinces10` and `Cities10` are built from
+[Natural Earth](https://www.naturalearthdata.com/), which is in the public
+domain.
+
+`CountriesEEZ10` uses the MarineRegions EEZ land union for its geometry, with
+country attributes and names from Natural Earth. The MarineRegions data is
+licensed [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) and requires
+attribution:
+
+> Flanders Marine Institute (2024). Union of the ESRI Country shapefile and the
+> Exclusive Economic Zones (version 4). Available online at
+> <https://www.marineregions.org/>. <https://doi.org/10.14284/698>.
+
+Per-dataset provenance is recorded alongside each file in `data/`.
+`CountriesEEZ10` is rebuilt by `scripts/eez/simplify.sh`; the other datasets by
+`datagen`.
 
 ## Contributing
 

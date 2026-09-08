@@ -69,13 +69,21 @@ type Rgeo struct {
 // go run datagen/datagen.go -ne -o Countries10 ne_10m_admin_0_countries.geojson
 // go run datagen/datagen.go -ne -o Provinces10 -merge ne_10m_admin_0_countries.geojson ne_10m_admin_1_states_provinces.geojson
 // go run datagen/datagen.go -ne -o Cities10 ne_10m_urban_areas_landscan.geojson
+//
+// CountriesEEZ10 is not built by datagen. It is built from the MarineRegions
+// EEZ land union, which is vendored under scripts/eez, by:
+// ./scripts/eez/simplify.sh
 
 // New returns an Rgeo struct which can then be used with ReverseGeocode. It
 // takes any number of datasets as an argument. The included datasets are:
-// Countries110, Countries10, Provinces10 and Cities10. Provinces10 includes all
-// of the country information so if that's all you want don't use Countries as
-// well. Cities10 only includes cities so you'll probably want to use
-// Provinces10 with it.
+// Countries110, Countries10, CountriesEEZ10, Provinces10 and Cities10.
+// Provinces10 includes all of the country information so if that's all you want
+// don't use Countries as well. Cities10 only includes cities so you'll probably
+// want to use Provinces10 with it.
+//
+// Countries110, Countries10, Provinces10 and Cities10 use Natural Earth country
+// polygons, which stop at the coastline. CountriesEEZ10 instead uses the
+// MarineRegions EEZ land union; see its documentation for the differences.
 func New(datasets ...func() []byte) (*Rgeo, error) {
 	// Parse GeoJSON
 	var fc geojson.FeatureCollection

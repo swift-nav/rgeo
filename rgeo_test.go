@@ -18,12 +18,33 @@ package rgeo
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"testing"
 
 	"github.com/go-test/deep"
+	"github.com/twpayne/go-geom/encoding/geojson"
 )
+
+// decodeDataset unpacks an embedded dataset so tests can assert on the raw
+// GeoJSON properties rather than only on ReverseGeocode results.
+func decodeDataset(t *testing.T, dataset func() []byte) *geojson.FeatureCollection {
+	t.Helper()
+
+	zr, err := gzip.NewReader(bytes.NewReader(dataset()))
+	if err != nil {
+		t.Fatalf("decompressing dataset: %v", err)
+	}
+	defer zr.Close()
+
+	var fc geojson.FeatureCollection
+	if err := json.NewDecoder(zr).Decode(&fc); err != nil {
+		t.Fatalf("decoding dataset: %v", err)
+	}
+
+	return &fc
+}
 
 var testdata = []struct {
 	name     string
@@ -347,6 +368,187 @@ func TestReverseGeocode_Cities(t *testing.T) {
 				t.Error(diff)
 			}
 		})
+	}
+}
+
+// CountriesEEZ10 is built from the MarineRegions EEZ land union by
+// scripts/eez/simplify.sh, using Natural Earth only to fill attributes the
+// EEZ data lacks. Natural Earth writes the sentinel "-99" instead of an ISO
+// code for countries whose code it treats as disputed (France and Norway among
+// them), and an earlier revision of that script let the sentinel reach the
+// shipped dataset, so ReverseGeocode returned CountryCode2 "-99" and an empty
+// CountryCode3 for all French and Norwegian waters. Guard the whole dataset
+// rather than a sample: no feature may carry the sentinel in either code.
+func TestCountriesEEZ10_NoSentinelCodes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test (sentinel codes) in short mode.")
+	}
+	t.Parallel()
+
+	fc := decodeDataset(t, CountriesEEZ10)
+
+	for i, f := range fc.Features {
+		for _, key := range []string{"ISO_A3", "ISO_A2"} {
+			if got := getPropertyString(f.Properties, key); got == "-99" {
+				t.Errorf("feature %d (%s): %s is the sentinel %q, want a real code",
+					i, getPropertyString(f.Properties, "ADMIN"), key, got)
+			}
+		}
+	}
+}
+
+// Every feature must carry the fields ReverseGeocode reads, otherwise callers
+// get a partially-populated Location for points inside that polygon.
+func TestCountriesEEZ10_CompleteProperties(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test (property completeness) in short mode.")
+	}
+	t.Parallel()
+
+	fc := decodeDataset(t, CountriesEEZ10)
+
+	required := []string{"ISO_A3", "ADMIN", "ISO_A2", "CONTINENT", "REGION_UN", "SUBREGION"}
+
+	for i, f := range fc.Features {
+		for _, key := range required {
+			if getPropertyString(f.Properties, key) == "" {
+				t.Errorf("feature %d (%s): %s is empty",
+					i, getPropertyString(f.Properties, "ADMIN"), key)
+			}
+		}
+	}
+}
+
+// Dependencies must keep their own ISO code and continent rather than
+// collapsing into their sovereign. The EEZ source models these as
+// SOVEREIGN1=Denmark / TERRITORY1=Greenland, and an earlier revision of
+// scripts/eez/simplify.sh let a Natural Earth join overwrite the territory's
+// code with the sovereign's, so Greenland reverse-geocoded to DNK/Europe and
+// French Polynesia to Europe with no country code at all.
+func TestReverseGeocode_TerritoriesNotCollapsed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test (territories) in short mode.")
+	}
+	t.Parallel()
+
+	r, err := New(CountriesEEZ10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Note HKG and MAC are deliberately absent: the MarineRegions EEZ land
+	// union has no record for either, both fall inside CHN.
+	tests := []struct {
+		name      string
+		in        []float64
+		code2     string
+		code3     string
+		continent string
+	}{
+		{"Paris", []float64{2.3522, 48.8566}, "FR", "FRA", "Europe"},
+		{"Oslo", []float64{10.7522, 59.9139}, "NO", "NOR", "Europe"},
+		{"Nuuk, Greenland", []float64{-51.7216, 64.1836}, "GL", "GRL", "North America"},
+		{"Torshavn, Faroe Islands", []float64{-6.7717, 62.0079}, "FO", "FRO", "Europe"},
+		{"Papeete, French Polynesia", []float64{-149.5665, -17.5516}, "PF", "PYF", "Oceania"},
+		{"Noumea, New Caledonia", []float64{166.4572, -22.2758}, "NC", "NCL", "Oceania"},
+		{"Stanley, Falkland Islands", []float64{-57.8560, -51.6977}, "FK", "FLK", "South America"},
+		{"Hamilton, Bermuda", []float64{-64.7810, 32.2949}, "BM", "BMU", "North America"},
+		{"Douglas, Isle of Man", []float64{-4.4814, 54.1509}, "IM", "IMN", "Europe"},
+		{"Oranjestad, Aruba", []float64{-70.0270, 12.5240}, "AW", "ABW", "North America"},
+		{"Berlin", []float64{13.4050, 52.5200}, "DE", "DEU", "Europe"},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			loc, err := r.ReverseGeocode(test.in)
+			if err != nil {
+				t.Fatalf("ReverseGeocode(%v): %v", test.in, err)
+			}
+			if loc.CountryCode2 != test.code2 {
+				t.Errorf("CountryCode2 = %q, want %q", loc.CountryCode2, test.code2)
+			}
+			if loc.CountryCode3 != test.code3 {
+				t.Errorf("CountryCode3 = %q, want %q", loc.CountryCode3, test.code3)
+			}
+			if loc.Continent != test.continent {
+				t.Errorf("Continent = %q, want %q", loc.Continent, test.continent)
+			}
+		})
+	}
+}
+
+// Natural Earth has no feature of its own for territories it folds into the
+// sovereign's multipolygon (Réunion, Guadeloupe, Bonaire, Christmas Island and
+// others), so the crosswalk in scripts/eez/simplify.sh cannot describe them and
+// they resolve as their sovereign. That is deliberate, but they must still
+// resolve: an earlier revision dropped them outright and made inhabited land
+// return ErrLocationNotFound, which is worse than the dataset they replaced.
+func TestReverseGeocode_SovereignFallbackTerritories(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test (sovereign fallback) in short mode.")
+	}
+	t.Parallel()
+
+	r, err := New(CountriesEEZ10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name  string
+		in    []float64
+		code3 string
+	}{
+		{"Cayenne, French Guiana", []float64{-52.3260, 4.9224}, "FRA"},
+		{"Saint-Denis, Reunion", []float64{55.4504, -20.8823}, "FRA"},
+		{"Fort-de-France, Martinique", []float64{-61.0742, 14.6161}, "FRA"},
+		{"Pointe-a-Pitre, Guadeloupe", []float64{-61.5314, 16.2415}, "FRA"},
+		{"Mamoudzou, Mayotte", []float64{45.2270, -12.7806}, "FRA"},
+		{"Longyearbyen, Svalbard", []float64{15.6469, 78.2232}, "NOR"},
+		{"Kralendijk, Bonaire", []float64{-68.2800, 12.1500}, "NLD"},
+		{"Christmas Island", []float64{105.6904, -10.4475}, "AUS"},
+		{"Cocos Islands", []float64{96.8710, -12.1642}, "AUS"},
+		{"Tokelau", []float64{-171.8484, -9.2002}, "NZL"},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			loc, err := r.ReverseGeocode(test.in)
+			if err != nil {
+				t.Fatalf("ReverseGeocode(%v): %v", test.in, err)
+			}
+			if loc.CountryCode3 != test.code3 {
+				t.Errorf("CountryCode3 = %q, want %q", loc.CountryCode3, test.code3)
+			}
+		})
+	}
+}
+
+// Natural Earth stores "CN-TW" in ISO_A2 for Taiwan, which is neither a valid
+// alpha-2 nor the "-99" sentinel, so a sentinel-only check lets it through.
+// Assert the shape of every code rather than just the absence of "-99".
+func TestCountriesEEZ10_WellFormedCodes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test (code shape) in short mode.")
+	}
+	t.Parallel()
+
+	fc := decodeDataset(t, CountriesEEZ10)
+
+	for i, f := range fc.Features {
+		admin := getPropertyString(f.Properties, "ADMIN")
+		if got := getPropertyString(f.Properties, "ISO_A3"); len(got) != 3 {
+			t.Errorf("feature %d (%s): ISO_A3 = %q, want 3 characters", i, admin, got)
+		}
+		if got := getPropertyString(f.Properties, "ISO_A2"); len(got) != 2 {
+			t.Errorf("feature %d (%s): ISO_A2 = %q, want 2 characters", i, admin, got)
+		}
 	}
 }
 
