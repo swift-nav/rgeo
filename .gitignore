@@ -19,3 +19,4 @@
 
 *.geojson
 datagen/datagen
+iso_lookup.csv
