@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+ - New `CountriesEEZ10` dataset, built from the MarineRegions EEZ land union
+ (v4, 2024-10) rather than Natural Earth. Its polygons extend to the edge of
+ each country's exclusive economic zone, roughly 200 nautical miles offshore,
+ instead of stopping at the coastline, so coordinates at sea resolve to a
+ country rather than returning `ErrLocationNotFound`. Do not use that error as
+ an "is at sea" test with it.
+
+   This is additive: `Countries10` is unchanged and still uses Natural Earth.
+   Datasets are embedded individually so the linker strips unused ones, meaning
+   `CountriesEEZ10` costs nothing unless you call it.
+
+   Compared with `Countries10`, it fixes several coastal attribution problems:
+
+   - France and Norway return `FR`/`FRA` and `NO`/`NOR` rather than the Natural
+   Earth `-99` sentinel with an empty `CountryCode3`, and Taiwan returns `TW`
+   rather than `CN-TW`.
+   - Réunion, Guadeloupe, Martinique, French Guiana, Mayotte, Svalbard,
+   Bonaire, Christmas Island, the Cocos Islands and Tokelau resolve as their
+   sovereign state; several previously returned `ErrLocationNotFound`.
+
+   It also drops some codes `Countries10` has, because MarineRegions has no EEZ
+   record for them: Hong Kong (`HKG`), Macao (`MAC`) and Åland (`ALA`) resolve
+   to `CHN`, `CHN` and `FIN`, and the Chagos Archipelago is attributed to
+   Mauritius, so `IOT` resolves to `MUS`.
+
+ - `scripts/eez/simplify.sh`, which rebuilds `CountriesEEZ10` reproducibly:
+ checksummed source data, a pinned mapshaper version, and a validation step
+ that fails the build on malformed or missing country codes.
+
 ## [1.3.0] - 2025-03-08
 
 ### Added
